@@ -1,7 +1,7 @@
+#include "list.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #define MAX_MSG_LENGTH 255
 #define MAX_VALID_LENGTH (MAX_MSG_LENGTH - 1)
@@ -17,61 +17,10 @@
 #define PURPLE_TEXT "\033[35m"
 #define RESET_TEXT "\033[0m"
 
-struct Message {
-  time_t timestamp;
-  char content[MAX_MSG_LENGTH];
-  struct Message *next;
-};
-
 void clear_input_buffer() {
   int c;
   while ((c = getchar()) != '\n' && c != EOF)
     ; // Discard all characters in input buffer
-}
-
-void list_append(time_t timestamp, char *input, struct Message **head, struct Message **tail) {
-  struct Message *current = (struct Message *)malloc(sizeof(struct Message));
-  if (current == NULL) {
-    printf("Memory allocation failed!\n");
-    return;
-  }
-  // Initialize the new node with the provided data
-  current->timestamp = timestamp;
-  strncpy(current->content, input, MAX_VALID_LENGTH);
-  current->content[MAX_VALID_LENGTH] = '\0'; // Ensure null termination
-  current->next = NULL;
-
-  if (*head == NULL) {
-    *head = current;
-  } else {
-    (*tail)->next = current;
-  }
-  *tail = current;
-}
-
-void list_print(struct Message *head) {
-  if (head == NULL) {
-    printf("(empty)\n");
-    return;
-  }
-
-  struct Message *current = head;
-  while (current != NULL) {
-    struct tm *time_info = localtime(&current->timestamp);
-    char timeString[6]; // space for "HH:MM\0"
-    strftime(timeString, sizeof(timeString), "%H:%M", time_info);
-    printf("%s[%s]%s User: %s\n", PURPLE_TEXT, timeString, RESET_TEXT, current->content);
-    current = current->next;
-  }
-  printf("\n");
-}
-
-void list_deallocate(struct Message **head) {
-  while (*head != NULL) {
-    struct Message *next = (*head)->next;
-    free(*head);
-    *head = next;
-  }
 }
 
 void print_chat_title() {
@@ -82,13 +31,13 @@ void print_chat_title() {
   printf("*************************************************\n");
 }
 
-void print_chat_log(struct Message *head, const char *error_message) {
+void print_chat_log(struct List *list, const char *error_message) {
   printf(CLEAR_SCREEN); // Clear the entire screen
   print_chat_title();
   printf("%s%sChat log%s\n", BOLD_TEXT, BLUE_TEXT, RESET_TEXT);
 
   // Print all previous messages in the chat log
-  list_print(head);
+  list_print(list);
   printf("\n\n");
 
   // If there's an error message, display it
@@ -117,13 +66,12 @@ int is_input_valid(char *input, const char **error_message) {
 
 int main(void) {
   char input[MAX_MSG_LENGTH];
-  struct Message *head = NULL;
-  struct Message *tail = NULL;
+  struct List list = {NULL, NULL};
 
   const char *error_message = NULL;
 
   while (strcmp(input, "quit") != 0) {
-    print_chat_log(head, error_message);
+    print_chat_log(&list, error_message);
 
     // Reset error message for the next loop
     error_message = NULL;
@@ -150,11 +98,11 @@ int main(void) {
     }
 
     // Append valid input to the list and print
-    list_append(time(NULL), input, &head, &tail);
+    list_append(input, &list);
   }
-  print_chat_log(head, error_message);
+  print_chat_log(&list, error_message);
   printf("quit\n");
   printf("👋 Goodbye!\n");
-  list_deallocate(&head);
+  list_deallocate(&list);
   return 0;
 }

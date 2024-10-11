@@ -11,7 +11,10 @@
 #define INPUT_ERROR_TOO_LONG -1
 
 #define CLEAR_SCREEN "\033[2J\033[H" // Clear screen and move cursor to top
+#define BOLD_TEXT "\033[1m"
 #define RED_TEXT "\033[31m"
+#define BLUE_TEXT "\033[34m"
+#define PURPLE_TEXT "\033[35m"
 #define RESET_TEXT "\033[0m"
 
 struct Message {
@@ -57,7 +60,7 @@ void list_print(struct Message *head) {
     struct tm *time_info = localtime(&current->timestamp);
     char timeString[6]; // space for "HH:MM\0"
     strftime(timeString, sizeof(timeString), "%H:%M", time_info);
-    printf("[%s] User: %s\n", timeString, current->content);
+    printf("%s[%s]%s User: %s\n", PURPLE_TEXT, timeString, RESET_TEXT, current->content);
     current = current->next;
   }
   printf("\n");
@@ -71,11 +74,18 @@ void list_deallocate(struct Message **head) {
   }
 }
 
-// Function to print the chat log and current prompt
+void print_chat_title() {
+  printf("*************************************************\n");
+  printf("*                                               *\n");
+  printf("*       Yokoso, watashi no Wispa Warudo!!       *\n");
+  printf("*                                               *\n");
+  printf("*************************************************\n");
+}
+
 void print_chat_log(struct Message *head, const char *error_message) {
   printf(CLEAR_SCREEN); // Clear the entire screen
-  printf("Yokoso, watashi no Wispa Warudo!!\n");
-  printf("Chat log\n");
+  print_chat_title();
+  printf("%s%sChat log%s\n", BOLD_TEXT, BLUE_TEXT, RESET_TEXT);
 
   // Print all previous messages in the chat log
   list_print(head);
@@ -144,7 +154,7 @@ int main(void) {
   }
   print_chat_log(head, error_message);
   printf("quit\n");
-  printf("Goodbye!\n");
+  printf("👋 Goodbye!\n");
   list_deallocate(&head);
   return 0;
 }

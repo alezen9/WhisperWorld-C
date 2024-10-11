@@ -11,10 +11,8 @@ OUT = $(patsubst %,$(OUT_DIR)/%,$(NAME).o)
 compile:
 	@mkdir -p $(OUT_DIR)
 	@$(COMPILER) -o $(OUT) main.c
-	@echo "[Chat application] $(GREEN)Compiled successfully$(RESET)"
 run:
 	@$(patsubst %,$(OUT_DIR)/%,$(NAME)).o
 clean:
-	@rm -r $(OUT_DIR) &&
-	@echo "[Chat application] $(GREEN)Cleaned up successfully$(RESET)"
+	@rm -f $(OUT_DIR) &&
 debug: compile run

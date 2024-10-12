@@ -4,18 +4,17 @@
 #include <string.h>
 #include <time.h>
 
-// Function to append a message to the list
-void list_append(char *input, struct List *list) {
+void list_append(char *input, struct User **current_user, struct List *list) {
   struct Message *current = (struct Message *)malloc(sizeof(struct Message));
   if (current == NULL) {
     printf("Memory allocation failed!\n");
     return;
   }
-  // Initialize the new node with the provided data
   current->timestamp = time(NULL);
   strncpy(current->content, input, MAX_MSG_LENGTH - 1);
   current->content[MAX_MSG_LENGTH - 1] = '\0'; // Ensure null termination
   current->next = NULL;
+  current->user = *current_user;
 
   if (list->head == NULL) {
     list->head = current;
@@ -25,7 +24,6 @@ void list_append(char *input, struct List *list) {
   list->tail = current;
 }
 
-// Function to print the messages in the list
 void list_print(struct List *list) {
   if (list->head == NULL) {
     printf("(empty)\n");
@@ -37,13 +35,12 @@ void list_print(struct List *list) {
     struct tm *time_info = localtime(&current->timestamp);
     char timeString[6]; // space for "HH:MM\0"
     strftime(timeString, sizeof(timeString), "%H:%M", time_info);
-    printf("[%s] User: %s\n", timeString, current->content);
+    printf("[%s] %s: %s\n", timeString, current->user->name, current->content);
     current = current->next;
   }
   printf("\n");
 }
 
-// Function to deallocate the list
 void list_deallocate(struct List *list) {
   while (list->head != NULL) {
     struct Message *next = list->head->next;

@@ -5,21 +5,24 @@
 
 #define MAX_MSG_LENGTH 255
 
-// Structure for a message in the chat log
+struct User {
+  char name[50];
+};
+
 struct Message {
+  struct User *user;
   time_t timestamp;
   char content[MAX_MSG_LENGTH];
   struct Message *next;
 };
 
-// Structure for the list (holds head and tail)
 struct List {
   struct Message *head;
   struct Message *tail;
 };
 
 // Function declarations
-void list_append(char *input, struct List *list);
+void list_append(char *input, struct User **current_user, struct List *list);
 void list_print(struct List *list);
 void list_deallocate(struct List *list);
 

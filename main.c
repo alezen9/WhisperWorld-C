@@ -31,22 +31,18 @@ void print_chat_title() {
   printf("*************************************************\n");
 }
 
-void print_chat_log(struct List *list, const char *error_message) {
-  printf(CLEAR_SCREEN); // Clear the entire screen
+void print_chat_log(struct List *list, struct User **current_user, const char *error_message) {
+  printf(CLEAR_SCREEN);
   print_chat_title();
   printf("%s%sChat log%s\n", BOLD_TEXT, BLUE_TEXT, RESET_TEXT);
 
-  // Print all previous messages in the chat log
   list_print(list);
   printf("\n\n");
 
-  // If there's an error message, display it
   if (error_message != NULL) {
     printf("%s%s%s", RED_TEXT, error_message, RESET_TEXT);
   }
-
-  // Print the input prompt
-  printf("Type your message (type 'quit' to exit): ");
+  printf("[%s] Type your message (type 'quit' to exit): ", (*current_user)->name);
 }
 
 int is_input_valid(char *input, const char **error_message) {
@@ -67,40 +63,51 @@ int is_input_valid(char *input, const char **error_message) {
 int main(void) {
   char input[MAX_MSG_LENGTH];
   struct List list = {NULL, NULL};
+  struct User *user1 = malloc(sizeof(struct User));
+  strcpy(user1->name, "Luffy");
+
+  struct User *user2 = malloc(sizeof(struct User));
+  strcpy(user2->name, "Naruto");
+
+  struct User **current_user = &user1;
 
   const char *error_message = NULL;
 
   while (strcmp(input, "quit") != 0) {
-    print_chat_log(&list, error_message);
+    print_chat_log(&list, current_user, error_message);
 
-    // Reset error message for the next loop
     error_message = NULL;
 
     // Ensure reading from stdin was successful
     if (fgets(input, sizeof(input), stdin) == NULL) {
       printf("Error reading input.\n");
+      clear_input_buffer();
       continue;
     }
 
-    // Handle quit case
     if (strcmp(input, "quit\n") == 0)
       break;
 
     // Remove newline character
     input[strcspn(input, "\n")] = 0;
 
-    // Validate input
     int is_valid = is_input_valid(input, &error_message);
     if (is_valid != INPUT_VALID) {
       if (is_valid == INPUT_ERROR_TOO_LONG)
-        clear_input_buffer(); // Flush any extra characters left in stdin
+        clear_input_buffer();
       continue;
     }
 
-    // Append valid input to the list and print
-    list_append(input, &list);
+    list_append(input, current_user, &list);
+
+    // Swap users
+    if (strcmp((*current_user)->name, user1->name) == 0) {
+      current_user = &user2;
+    } else {
+      current_user = &user1;
+    }
   }
-  print_chat_log(&list, error_message);
+  print_chat_log(&list, current_user, error_message);
   printf("quit\n");
   printf("👋 Goodbye!\n");
   list_deallocate(&list);

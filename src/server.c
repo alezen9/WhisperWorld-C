@@ -10,7 +10,6 @@
 #define MAX_CLIENTS 10 // Maximum number of client connections allowed
 #define CONNECTION_REQUEST_QUEUE_SIZE 3
 
-// Function to broadcast a message to all connected clients, except the sender
 void broadcast_message(int sender_fd, struct Message *msg, int *clients, int num_clients) {
     for (int i = 0; i < num_clients; i++) {
         // Send the message to all clients except the sender
@@ -21,24 +20,20 @@ void broadcast_message(int sender_fd, struct Message *msg, int *clients, int num
 }
 
 void handle_incoming_connection_request(const int *server_fd, fd_set *readfds, int *clients) {
-    // Check if there's a new incoming connection request on the server socket
     if (FD_ISSET(*server_fd, readfds)) {
         int new_socket;
         struct sockaddr_in address;
         socklen_t addrlen = sizeof(address);
 
-        // Accept the new connection and create a new socket for the client
         new_socket = accept(*server_fd, (struct sockaddr *)&address, &addrlen);
 
-        // If accept fails, handle the error
         if (new_socket < 0) {
             perror("Accept error");
-            exit(EXIT_FAILURE);
+            exit(EXIT_FAILURE); // Fail fast on accept error
         }
 
-        int added = 0;
-
         // Add the new client to the clients array
+        int added = 0;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (clients[i] == 0) {
                 clients[i] = new_socket;
@@ -48,9 +43,10 @@ void handle_incoming_connection_request(const int *server_fd, fd_set *readfds, i
                 break;
             }
         }
+
         if (!added) {
             printf("Client limit reached. Rejecting connection.\n");
-            close(new_socket);
+            close(new_socket); // Close connection if the client limit is reached
         }
     }
 }
@@ -86,7 +82,6 @@ void handle_incoming_message_request(fd_set *readfds, int *clients) {
 void reset_readfds(int *server_fd, fd_set *readfds) {
     // Clear the socket set
     FD_ZERO(readfds);
-
     // Add the server socket to the set
     FD_SET(*server_fd, readfds);
 }
@@ -113,7 +108,6 @@ int wait_for_activity(int *server_fd, fd_set *readfds, int *clients) {
     return select(max_socket_fd + 1, readfds, NULL, NULL, &timeout);
 }
 
-// Handle incoming connections and client data
 void process_requests(int *server_fd) {
     int clients[MAX_CLIENTS] = {0}; // Array to keep track of client sockets (0 if empty)
     fd_set readfds;                 // Set of file descriptors to monitor (using select)
@@ -123,11 +117,15 @@ void process_requests(int *server_fd) {
         reset_readfds(server_fd, &readfds);
 
         active_fds_count = wait_for_activity(server_fd, &readfds, clients);
-        // If select returns < 0 and it's not an interrupt, there's an error
-        if ((active_fds_count < 0) && (errno != EINTR)) printf("Select error\n");
+
+        // Fail fast on select error
+        if ((active_fds_count < 0) && (errno != EINTR)) {
+            perror("Select error");
+            close(*server_fd);  // Clean up before exiting
+            exit(EXIT_FAILURE); // Fail fast if select fails
+        }
 
         handle_incoming_connection_request(server_fd, &readfds, clients);
-
         handle_incoming_message_request(&readfds, clients);
     }
 }
@@ -140,42 +138,44 @@ int create_server() {
     // Create the server socket (TCP)
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("Socket failed");
-        exit(EXIT_FAILURE);
+        exit(EXIT_FAILURE); // Fail fast if socket creation fails
     }
 
-    // Disallow reuse of the address to avoid “address already in use”
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable_reuse_address, sizeof(enable_reuse_address))) {
-        perror("setsockopt");
-        exit(EXIT_FAILURE);
+    // Allow reuse of the address to avoid "Address already in use" error
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &enable_reuse_address, sizeof(enable_reuse_address)) < 0) {
+        perror("setsockopt failed");
+        close(server_fd);   // Ensure resources are cleaned up
+        exit(EXIT_FAILURE); // Fail fast if setting socket options fails
     }
 
     // Configure the server address
-    server_address.sin_family = AF_INET;         // IPv4
-    server_address.sin_addr.s_addr = INADDR_ANY; // Accept connections from any address
-    server_address.sin_port = htons(PORT);       // Port number
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = INADDR_ANY;
+    server_address.sin_port = htons(PORT);
 
     // Bind the socket to the specified address and port
     if (bind(server_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
         perror("Bind failed");
-        exit(EXIT_FAILURE);
+        close(server_fd);   // Cleanup in case of failure
+        exit(EXIT_FAILURE); // Fail fast if binding fails
     }
 
     return server_fd;
 }
 
 int main() {
-    int server_fd = create_server();
+    int server_fd = create_server(); // If this fails, the program already exits
 
-    // Start listening for incoming connections (backlog queue size: 3)
+    // Start listening for incoming connections
     if (listen(server_fd, CONNECTION_REQUEST_QUEUE_SIZE) < 0) {
         perror("Listen failed");
-        exit(EXIT_FAILURE);
+        close(server_fd);   // Cleanup before exit
+        exit(EXIT_FAILURE); // Fail fast if listening fails
     }
 
     printf("Server listening on port %d...\n", PORT);
 
-    // Enter the main server loop to handle clients
-    process_requests(&server_fd);
+    process_requests(&server_fd); // Start handling requests
 
     return EXIT_SUCCESS;
 }

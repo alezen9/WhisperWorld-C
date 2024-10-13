@@ -1,0 +1,11 @@
+BasedOnStyle: LLVM
+BraceWrapping:
+  AfterFunction: false   # Function opening brace on the same line
+  AfterControlStatement: false   # If, for, while, etc. on the same line
+ColumnLimit: 120          # Set max line length to 120 characters
+PointerAlignment: Right
+IndentWidth: 4
+TabWidth: 2
+UseTab: Never
+AllowShortIfStatementsOnASingleLine: true
+RemoveBracesLLVM: true

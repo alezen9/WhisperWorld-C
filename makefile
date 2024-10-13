@@ -1,49 +1,52 @@
-# Colors for output
-RED=$(shell tput -Txterm setaf 1)
-GREEN=$(shell tput -Txterm setaf 2)
-RESET=$(shell tput sgr0)
-
-# Compiler and flags
+# Project name and directories
+PROJECT_NAME = WhisperWorld
 COMPILER = gcc
-CFLAGS = -Wall -Werror
+CFLAGS = -Iinclude -Wall   # Include the "include" directory for header files
+OUT_DIR = bin
+OBJ_DIR = obj
 
-# Output directory
-OUT_DIR = obj
+# Source files for server and client
+SERVER_SRC = src/server.c src/list.c
+CLIENT_SRC = src/client.c src/list.c
 
-# Program name
-NAME = WisperWorld
-OUT = $(OUT_DIR)/$(NAME)
+# Object files for server and client
+SERVER_OBJ = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(SERVER_SRC))
+CLIENT_OBJ = $(patsubst src/%.c,$(OBJ_DIR)/%.o,$(CLIENT_SRC))
 
-# Source and object files
-SRC = main.c list.c
-OBJ = $(patsubst %.c,$(OUT_DIR)/%.o,$(SRC))
+# Final binaries
+SERVER_BIN = $(OUT_DIR)/$(PROJECT_NAME)-server
+CLIENT_BIN = $(OUT_DIR)/$(PROJECT_NAME)-client
 
-# Default target: Build and link the program
-all: $(OUT)
-	@echo "$(GREEN)Build complete!$(RESET)"
+# Default target
+all: server client
 
-# Compile the program by linking object files
-$(OUT): $(OBJ)
+# Compile the server
+server: $(SERVER_BIN)
+
+$(SERVER_BIN): $(SERVER_OBJ)
 	@mkdir -p $(OUT_DIR)
-	@$(COMPILER) $(CFLAGS) -o $(OUT) $(OBJ)
-	@echo "$(GREEN)Linked $(OUT)!$(RESET)"
+	$(COMPILER) $(SERVER_OBJ) -o $(SERVER_BIN)
 
-# Compile object files from source files
-$(OUT_DIR)/%.o: %.c
+# Compile the client
+client: $(CLIENT_BIN)
+
+$(CLIENT_BIN): $(CLIENT_OBJ)
 	@mkdir -p $(OUT_DIR)
-	@$(COMPILER) $(CFLAGS) -c $< -o $@
-	@echo "$(GREEN)Compiled $<$(RESET)"
+	$(COMPILER) $(CLIENT_OBJ) -o $(CLIENT_BIN)
 
-# Run the program
-run: $(OUT)
-	@./$(OUT)
+# Rule to compile object files from source files
+$(OBJ_DIR)/%.o: src/%.c
+	@mkdir -p $(OBJ_DIR)
+	$(COMPILER) $(CFLAGS) -c $< -o $@
 
-# Clean up the build (remove object files and binary)
+# Run the server
+server-run: server
+	@./$(SERVER_BIN)
+
+# Run the client
+client-run: client
+	@./$(CLIENT_BIN)
+
+# Clean the project
 clean:
-	@rm -rf $(OUT_DIR)
-	@echo "$(RED)Build cleaned!$(RESET)"
-
-# Debug build (adds debugging symbols)
-debug: CFLAGS += -g
-debug: clean all
-	@echo "$(GREEN)Debug build complete!$(RESET)"
+	rm -rf $(OUT_DIR) $(OBJ_DIR)

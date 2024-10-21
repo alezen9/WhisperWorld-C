@@ -1,4 +1,5 @@
 #include "list.h"
+#include "serialization.h"
 #include <arpa/inet.h>
 #include <errno.h> // For handling error codes
 #include <stdio.h>
@@ -8,7 +9,6 @@
 
 #define SERVER_PORT 8080
 
-#define MAX_MSG_LENGTH 255
 #define MAX_VALID_LENGTH (MAX_MSG_LENGTH - 1)
 
 #define INPUT_VALID 1
@@ -84,7 +84,7 @@ int is_input_valid(char *input, const char **error_message) {
     int len = strlen(input);
 
     if (len >= MAX_VALID_LENGTH) {
-        *error_message = "Input cannot be more than 254 characters!\n";
+        *error_message = "Input cannot be more than 255 characters!\n";
         return INPUT_ERROR_TOO_LONG;
     }
     if (len == 0 || (len == 1 && input[0] == '\n')) {
@@ -107,11 +107,21 @@ void set_user(char *user_name) {
 }
 
 void send_message(int client_fd, struct Message *message) {
-    if (send(client_fd, message, sizeof(struct Message), 0) == -1) perror("Error sending message struct");
+    char buffer[sizeof(struct Message)];
+
+    // Serialize the message before sending
+    if (serialize_message(message, buffer, sizeof(buffer)) < 0) {
+        printf("Serialization error\n");
+        return;
+    }
+
+    if (send(client_fd, buffer, sizeof(buffer), 0) == -1) perror("Error sending message");
 }
 
 void receive_message(int server_fd, struct Message *msg) {
-    int valread = recv(server_fd, msg, sizeof(struct Message), 0);
+    char buffer[sizeof(struct Message)];
+
+    int valread = recv(server_fd, buffer, sizeof(buffer), 0);
     if (valread <= 0) {
         if (valread == 0)
             printf("\nServer disconnected.\n"); // Server has closed the connection
@@ -120,6 +130,7 @@ void receive_message(int server_fd, struct Message *msg) {
         close(server_fd);   // Close the socket to clean up
         exit(EXIT_FAILURE); // Exit if server disconnects or error occurs
     }
+    if (deserialize_message(buffer, msg, sizeof(buffer)) < 0) printf("Deserialization error\n");
 }
 
 int main() {

@@ -3,8 +3,8 @@
 
 #include <time.h>
 
-#define MAX_MSG_LENGTH 255
-#define USER_NAME_LENGTH 50
+#define MAX_MSG_LENGTH 256
+#define USER_NAME_LENGTH 32
 
 struct Message {
     char user_name[USER_NAME_LENGTH];

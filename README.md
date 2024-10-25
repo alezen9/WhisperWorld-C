@@ -5,7 +5,14 @@
 **WhisperWorld-C** is a client-server chat application built in C, utilizing libuv for asynchronous I/O operations. The project explores networking concepts, multithreading, event-driven programming, and the potential for building custom communication protocols.
 
 
-![alt text](<example.png>)
+## Recorder demo (or Screenshot)
+*Screenshot is displayed in case the recording fails to load.
+
+<video src="https://github.com/user-attachments/assets/109e9382-789b-4c6f-871e-2612bd03b7fe" autoplay muted loop>
+  Video failed to load, here is an image preview.<br />
+  <img src="example.png" alt="Video unavailable">
+</video>
+
 <br /><br />
 
 ## Table of Contents

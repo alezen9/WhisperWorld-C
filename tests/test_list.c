@@ -34,11 +34,40 @@ START_TEST(test_list_append) {
 }
 END_TEST
 
+START_TEST(test_list_deallocate) {
+    struct List list = {NULL, NULL};
+
+    struct Message msg1, msg2;
+    strcpy(msg1.user_name, "User 1");
+    strcpy(msg1.content, "Message 1");
+    msg1.timestamp = (time_t)111111;
+
+    strcpy(msg2.user_name, "User 2");
+    strcpy(msg2.content, "Message 2");
+    msg2.timestamp = (time_t)222222;
+
+    // Append messages to the list
+    list_append(&msg1, &list);
+    list_append(&msg2, &list);
+
+    // Check that the list is populated
+    ck_assert_ptr_nonnull(list.head);
+    ck_assert_ptr_nonnull(list.tail);
+
+    // Deallocate the list and check pointers are reset
+    list_deallocate(&list);
+    ck_assert_ptr_null(list.head);
+    ck_assert_ptr_null(list.tail);
+}
+END_TEST
+
 Suite *list_suite(void) {
     Suite *s = suite_create("List");
     TCase *tc_core = tcase_create("Core");
 
     tcase_add_test(tc_core, test_list_append);
+    tcase_add_test(tc_core, test_list_deallocate);
+
     suite_add_tcase(s, tc_core);
 
     return s;

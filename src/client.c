@@ -100,10 +100,15 @@ int is_input_valid(char *input, const char **error_message) {
     return INPUT_VALID;
 }
 
+void on_write_end(uv_write_t *req, int status) {
+    if (status) fprintf(stderr, "Write error: %s\n", uv_strerror(status));
+    free(req);
+}
+
 // User Input Callback
 void on_user_input(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     const char *error_message = NULL;
-    if (nread <= 0) {
+    if (nread <= 0 || nread == UV_EOF) {
         if (nread < 0) fprintf(stderr, "Read error: %s\n", uv_strerror(nread));
         free(buf->base);
         cleanup_and_exit();
@@ -132,7 +137,7 @@ void on_user_input(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
         } else {
             uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
             uv_buf_t uvbuf = uv_buf_init(buffer, sizeof(buffer));
-            uv_write(req, (uv_stream_t *)&client_handle, &uvbuf, 1, NULL);
+            uv_write(req, (uv_stream_t *)&client_handle, &uvbuf, 1, on_write_end);
 
             list_append(&msg, &chat_log);
             display_chat_log(error_message);
@@ -146,21 +151,23 @@ void on_user_input(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
 
 // Server Message Callback
 void on_server_message(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
-    if (nread > 0) {
-        struct Message msg;
-        if (deserialize_message(buf->base, &msg, nread) == 0) {
-            list_append(&msg, &chat_log);
-            display_chat_log(NULL);
-        } else {
-            fprintf(stderr, "Deserialization error\n");
-        }
-    } else if (nread < 0) {
-        fprintf(stderr, "Server connection closed or read error: %s\n", uv_strerror(nread));
+    if (nread <= 0 || nread == UV_EOF) {
+        if (nread == 0) fprintf(stderr, "Server connection closed or read error: %s\n", uv_strerror(nread));
         free(buf->base);
         cleanup_and_exit();
+        return;
     }
+    struct Message msg;
+    if (deserialize_message(buf->base, &msg, nread) != 0) fprintf(stderr, "Deserialization error\n");
+
+    list_append(&msg, &chat_log);
+    display_chat_log(NULL);
 
     free(buf->base);
+}
+
+void on_connect_end(uv_connect_t *req, int status) {
+    if (status) fprintf(stderr, "Connection error: %s\n", uv_strerror(status));
 }
 
 // Connect to Server
@@ -169,7 +176,7 @@ void connect_to_server(uv_connect_t *connection_req) {
     uv_ip4_addr("127.0.0.1", SERVER_PORT, &server_addr);
 
     uv_tcp_init(loop, &client_handle);
-    uv_tcp_connect(connection_req, &client_handle, (const struct sockaddr *)&server_addr, NULL);
+    uv_tcp_connect(connection_req, &client_handle, (const struct sockaddr *)&server_addr, on_connect_end);
     uv_read_start((uv_stream_t *)&client_handle, allocate_read_buffer, on_server_message);
 }
 

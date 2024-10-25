@@ -3,11 +3,21 @@ project(WhisperWorld LANGUAGES C)
 
 set(CMAKE_C_STANDARD 23)
 
-# Include the Dependencies (libuv)
+# Enable testing with CTest
+enable_testing()
+
+# Include include dir globally for headers
+include_directories(${CMAKE_SOURCE_DIR}/include)
+
+# Define source files
+set(SOURCES
+    src/list.c
+)
+
 include(cmake/Dependencies.cmake)
 
-# Add the src directory, which contains its own CMakeLists.txt
 add_subdirectory(src)
+add_subdirectory(tests)
 
 # Optional: Clean the build directory
 add_custom_target(clean-all

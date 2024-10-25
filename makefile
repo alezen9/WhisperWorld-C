@@ -2,12 +2,15 @@
 
 build_dir = build
 
-.PHONY: all clean server client
+.PHONY: all clean server client test
 
 all: init server client
 
 init:
 	cmake -B$(build_dir)
+
+build: init
+	cmake --build $(build_dir)
 
 server:
 	cmake --build $(build_dir) --target server
@@ -29,3 +32,6 @@ client-debug: client
 
 clean:
 	@rm -rf $(build_dir)
+
+test: build
+	cd $(build_dir) && ctest --output-on-failure

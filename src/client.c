@@ -1,64 +1,68 @@
+// Includes
 #include "list.h"
 #include "serialization.h"
 #include <arpa/inet.h>
-#include <errno.h> // For handling error codes
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <uv.h>
 
 #define SERVER_PORT 8080
-
+// Setting for uv_pipe_init to disable Inter-Process Communication (IPC).
+// IPC allows data to be shared between processes; setting this to 0 means the pipe is only used for communication
+// within this process, specifically for reading user input.
+#define NO_IPC 0
 #define MAX_VALID_LENGTH (MAX_MSG_LENGTH - 1)
-
 #define INPUT_VALID 1
 #define INPUT_ERROR_EMPTY 0
 #define INPUT_ERROR_TOO_LONG -1
-
-#define CLEAR_SCREEN "\033[2J\033[H" // Clear screen and move cursor to top
+#define CLEAR_SCREEN "\033[2J\033[H"
 #define BOLD_TEXT "\033[1m"
 #define RED_TEXT "\033[31m"
 #define BLUE_TEXT "\033[34m"
 #define PURPLE_TEXT "\033[35m"
 #define RESET_TEXT "\033[0m"
 
-void clear_input_buffer() {
-    int c;
-    while ((c = getchar()) != '\n' && c != EOF)
-        ; // Discard all characters in input buffer
+// Global Variables
+uv_loop_t *loop;
+uv_pipe_t stdin_pipe;
+uv_tcp_t client_handle;
+struct List chat_log = {NULL, NULL};
+char user_name[USER_NAME_LENGTH];
+
+// Cleanup Function
+void cleanup_and_exit() {
+    // Check if stdin listener is active and not closing, then close it
+    if (uv_is_active((uv_handle_t *)&stdin_pipe) && !uv_is_closing((uv_handle_t *)&stdin_pipe))
+        uv_close((uv_handle_t *)&stdin_pipe, NULL);
+
+    // Check if server connection is active and not closing, then close it
+    if (uv_is_active((uv_handle_t *)&client_handle) && !uv_is_closing((uv_handle_t *)&client_handle))
+        uv_close((uv_handle_t *)&client_handle, NULL);
+
+    // Free any dynamically allocated memory associated with message handling
+    if (chat_log.head != NULL) list_deallocate(&chat_log); // Example if you’re using a linked list
+
+    printf("👋 Goodbye!\n");
+    uv_stop(loop);      // Ensure event loop stops
+    exit(EXIT_SUCCESS); // Safely exit
 }
 
-int connect_to_server() {
-    int client_fd;
-    struct sockaddr_in server_address;
-
-    // Configure server address
-    server_address.sin_family = AF_INET;
-    server_address.sin_port = htons(SERVER_PORT);
-
-    // Create socket
-    if ((client_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        perror("Socket creation error");
-        exit(EXIT_FAILURE); // Fail fast if socket creation fails
-    }
-
-    // Convert IP addresses from text to binary (localhost)
-    if (inet_pton(AF_INET, "127.0.0.1", &server_address.sin_addr) <= 0) {
-        perror("Invalid address or address not supported");
-        close(client_fd);   // Cleanup if conversion fails
-        exit(EXIT_FAILURE); // Fail fast if address conversion fails
-    }
-
-    // Connect to the server
-    if (connect(client_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) {
-        perror("Connection failed");
-        close(client_fd);   // Cleanup if connection fails
-        exit(EXIT_FAILURE); // Fail fast if connection fails
-    }
-
-    return client_fd;
+// Signal Handler for Ctrl+C
+void handle_sigint(uv_signal_t *req, int signum) {
+    printf("\n\nCaught signal %d, exiting...\n", signum);
+    cleanup_and_exit();
 }
 
+// Buffer Allocation
+void allocate_read_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
+    buf->base = malloc(suggested_size);
+    buf->len = suggested_size;
+}
+
+// Display Chat Title and Prompt
 void print_chat_title() {
     printf("*************************************************\n");
     printf("*                                               *\n");
@@ -67,24 +71,25 @@ void print_chat_title() {
     printf("*************************************************\n");
 }
 
-void print_chat_log(struct List *list, char *user_name, const char *error_message) {
+// Display Chat Log
+void display_chat_log(const char *error_message) {
     printf(CLEAR_SCREEN);
     print_chat_title();
     printf("%s%sChat log%s\n", BOLD_TEXT, BLUE_TEXT, RESET_TEXT);
-
-    list_print(list);
+    list_print(&chat_log);
     printf("\n\n");
-
     if (error_message != NULL) printf("%s%s%s", RED_TEXT, error_message, RESET_TEXT);
     printf("[%s] Type your message (type 'quit' to exit): ", user_name);
-    fflush(stdout); // Ensure the output is flushed to the console immediately
+    fflush(stdout);
 }
 
+// Input Validation
 int is_input_valid(char *input, const char **error_message) {
     int len = strlen(input);
-
     if (len >= MAX_VALID_LENGTH) {
-        *error_message = "Input cannot be more than 255 characters!\n";
+        char error_buffer[64];
+        snprintf(error_buffer, sizeof(error_buffer), "Input cannot be more than %d characters!\n", MAX_VALID_LENGTH);
+        *error_message = error_buffer;
         return INPUT_ERROR_TOO_LONG;
     }
     if (len == 0 || (len == 1 && input[0] == '\n')) {
@@ -95,112 +100,105 @@ int is_input_valid(char *input, const char **error_message) {
     return INPUT_VALID;
 }
 
-void set_user(char *user_name) {
-    char name[sizeof(user_name)];
-    // Ensure reading from stdin was successful
-    if (fgets(name, sizeof(name), stdin) == NULL) {
-        printf("Error reading input.\n");
-        clear_input_buffer();
-    }
-    name[strcspn(name, "\n")] = 0; // Remove newline character
-    strcpy(user_name, name);
-}
-
-void send_message(int client_fd, struct Message *message) {
-    char buffer[sizeof(struct Message)];
-
-    // Serialize the message before sending
-    if (serialize_message(message, buffer, sizeof(buffer)) < 0) {
-        printf("Serialization error\n");
+// User Input Callback
+void on_user_input(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    const char *error_message = NULL;
+    if (nread <= 0) {
+        if (nread < 0) fprintf(stderr, "Read error: %s\n", uv_strerror(nread));
+        free(buf->base);
+        cleanup_and_exit();
         return;
     }
 
-    if (send(client_fd, buffer, sizeof(buffer), 0) == -1) perror("Error sending message");
+    // Remove newline and terminate
+    buf->base[strcspn(buf->base, "\n")] = '\0';
+
+    if (strcmp(buf->base, "quit") == 0) {
+        free(buf->base);
+        cleanup_and_exit();
+        return;
+    }
+
+    int is_valid = is_input_valid(buf->base, &error_message);
+    if (is_valid == INPUT_VALID) {
+        struct Message msg;
+        strcpy(msg.user_name, user_name);
+        strcpy(msg.content, buf->base);
+        msg.timestamp = time(NULL);
+
+        char buffer[sizeof(struct Message)];
+        if (serialize_message(&msg, buffer, sizeof(buffer)) < 0) {
+            fprintf(stderr, "Serialization error\n");
+        } else {
+            uv_write_t *req = (uv_write_t *)malloc(sizeof(uv_write_t));
+            uv_buf_t uvbuf = uv_buf_init(buffer, sizeof(buffer));
+            uv_write(req, (uv_stream_t *)&client_handle, &uvbuf, 1, NULL);
+
+            list_append(&msg, &chat_log);
+            display_chat_log(error_message);
+        }
+    } else {
+        display_chat_log(error_message);
+    }
+
+    free(buf->base);
 }
 
-void receive_message(int server_fd, struct Message *msg) {
-    char buffer[sizeof(struct Message)];
-
-    int valread = recv(server_fd, buffer, sizeof(buffer), 0);
-    if (valread <= 0) {
-        if (valread == 0)
-            printf("\nServer disconnected.\n"); // Server has closed the connection
-        else
-            perror("Error receiving message from server");
-        close(server_fd);   // Close the socket to clean up
-        exit(EXIT_FAILURE); // Exit if server disconnects or error occurs
+// Server Message Callback
+void on_server_message(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    if (nread > 0) {
+        struct Message msg;
+        if (deserialize_message(buf->base, &msg, nread) == 0) {
+            list_append(&msg, &chat_log);
+            display_chat_log(NULL);
+        } else {
+            fprintf(stderr, "Deserialization error\n");
+        }
+    } else if (nread < 0) {
+        fprintf(stderr, "Server connection closed or read error: %s\n", uv_strerror(nread));
+        free(buf->base);
+        cleanup_and_exit();
     }
-    if (deserialize_message(buffer, msg, sizeof(buffer)) < 0) printf("Deserialization error\n");
+
+    free(buf->base);
+}
+
+// Connect to Server
+void connect_to_server(uv_connect_t *connection_req) {
+    struct sockaddr_in server_addr;
+    uv_ip4_addr("127.0.0.1", SERVER_PORT, &server_addr);
+
+    uv_tcp_init(loop, &client_handle);
+    uv_tcp_connect(connection_req, &client_handle, (const struct sockaddr *)&server_addr, NULL);
+    uv_read_start((uv_stream_t *)&client_handle, allocate_read_buffer, on_server_message);
 }
 
 int main() {
-    int client_fd = connect_to_server();
-    char user_name[USER_NAME_LENGTH];
-    struct List list = {NULL, NULL};
-    char input[MAX_MSG_LENGTH];
-    struct Message current_message;
+    loop = uv_default_loop();
 
-    // Ask for user name
+    uv_signal_t sigint;
+    uv_signal_init(loop, &sigint);
+    uv_signal_start(&sigint, handle_sigint, SIGINT);
+
+    // Prompt for user's name
     printf(CLEAR_SCREEN);
     print_chat_title();
     printf("\nEnter your name: ");
-    set_user(user_name);
+    fgets(user_name, sizeof(user_name), stdin);
+    user_name[strcspn(user_name, "\n")] = 0;
 
-    const char *error_message = NULL;
+    // Initial chat display
+    display_chat_log(NULL);
 
-    print_chat_log(&list, user_name, error_message);
+    // Set up user input pipe
+    uv_pipe_init(loop, &stdin_pipe, NO_IPC);
+    uv_pipe_open(&stdin_pipe, STDIN_FILENO);
+    uv_read_start((uv_stream_t *)&stdin_pipe, allocate_read_buffer, on_user_input);
 
-    fd_set fds; // Set of file descriptors to monitor
-    while (strcmp(input, "quit") != 0) {
-        FD_ZERO(&fds);
-        FD_SET(STDIN_FILENO, &fds);
-        FD_SET(client_fd, &fds);
+    // Connect to the server
+    uv_connect_t connection_req;
+    connect_to_server(&connection_req);
+    uv_run(loop, UV_RUN_DEFAULT);
 
-        int activity = select(client_fd + 1, &fds, NULL, NULL, NULL);
-
-        if (activity < 0 && errno != EINTR) {
-            perror("Select error");
-            close(client_fd);
-            exit(EXIT_FAILURE);
-        }
-
-        if (FD_ISSET(STDIN_FILENO, &fds)) {
-            error_message = NULL;
-
-            if (fgets(input, sizeof(input), stdin) == NULL) {
-                printf("Error reading input.\n");
-                clear_input_buffer();
-                continue;
-            }
-
-            if (strcmp(input, "quit\n") == 0) break;
-
-            input[strcspn(input, "\n")] = 0; // Remove newline
-
-            int is_valid = is_input_valid(input, &error_message);
-            if (is_valid != INPUT_VALID) {
-                if (is_valid == INPUT_ERROR_TOO_LONG) clear_input_buffer();
-                print_chat_log(&list, user_name, error_message);
-                continue;
-            }
-
-            strcpy(current_message.content, input);
-            strcpy(current_message.user_name, user_name);
-            current_message.timestamp = time(NULL);
-            send_message(client_fd, &current_message);
-
-            list_append(&current_message, &list);
-            print_chat_log(&list, user_name, error_message);
-        }
-
-        if (FD_ISSET(client_fd, &fds)) {
-            receive_message(client_fd, &current_message);
-            list_append(&current_message, &list);
-            print_chat_log(&list, user_name, error_message);
-        }
-    }
-    printf("👋 Goodbye!\n");
-
-    close(client_fd);
     return EXIT_SUCCESS;
 }
